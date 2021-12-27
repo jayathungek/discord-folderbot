@@ -84,12 +84,12 @@ async def remove(ctx, *paths):
     success, fail = await _rmdirs(filetree, *dirs_to_rm)
 
     if len(success) > 0:
-        message = f"**Removed these items successfully:**\n{cst.NEWLINE.join('* ' + i for i in success)}"
+        message = f"**Removed these items successfully:**\n{cst.NEWLINE.join(i for i in success)}"
         await send_message(ctx, message, cst.MSG_INFO, msg_title_override="rm")
 
     if len(fail) > 0:
         message = f"**Failed to remove these items:**" \
-                  f"\n{cst.NEWLINE.join('* ' + name + ' -> ' + str(msg) for msg, name in fail)}"
+                  f"\n{cst.NEWLINE.join(name + ' -> ' + str(msg) for msg, name in fail)}"
         await send_message(ctx, message, cst.MSG_ERR, msg_title_override="error: rm")
 
     save_filetree_state(ctx, filetree)
@@ -140,12 +140,12 @@ async def mkdirs(ctx, *paths):
             fail.append(f[-1])
 
     if len(success) > 0:
-        message = f"**Created these folders successfully:**\n{cst.NEWLINE.join('* ' + i for i in success)}"
+        message = f"**Created these folders successfully:**\n{cst.NEWLINE.join(i for i in success)}"
         await send_message(ctx, message, cst.MSG_INFO, msg_title_override="mk")
 
     if len(fail) > 0:
         message = f"**Failed to create these folders:**" \
-                  f"\n{cst.NEWLINE.join('* ' + name + ' -> ' + str(msg) for msg, name in fail)}"
+                  f"\n{cst.NEWLINE.join(name + ' -> ' + str(msg) for msg, name in fail)}"
         await send_message(ctx, message, cst.MSG_ERR, msg_title_override="error: mk")
 
     save_filetree_state(ctx, filetree)
@@ -314,12 +314,12 @@ async def upload(ctx, directory=None):
 
     if len(success) > 0:
         message = f"**Uploaded these files successfully to {directory}:**" \
-                  f"\n{cst.NEWLINE.join('* ' + i for i in success)}"
+                  f"\n{cst.NEWLINE.join(i for i in success)}"
         await send_message(ctx, message, cst.MSG_INFO, msg_title_override="up")
 
     if len(fail) > 0:
         message = f"**Failed to upload these files to {directory}:**" \
-                  f"\n{cst.NEWLINE.join('* ' + name + ' -> ' + str(msg) for msg, name in fail)}"
+                  f"\n{cst.NEWLINE.join(name + ' -> ' + str(msg) for msg, name in fail)}"
         await send_message(ctx, message, cst.MSG_ERR, msg_title_override="error: up")
 
     save_filetree_state(ctx, filetree)
