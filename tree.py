@@ -5,7 +5,6 @@ from discord.ext.commands.context import Context
 
 import util
 import error
-import cloudpickle
 from store import db
 import constansts as cst
 
@@ -181,13 +180,8 @@ class Tree:
 
 def save_filetree_state(context: Context, ftree: Tree):
     server_id = context.message.guild.id
-    try:
-        serialized_ftree = dill.dumps(ftree)
-        t = dill.loads(serialized_ftree)
-        db.set(server_id, serialized_ftree)
-    except Exception as err:
-        # print(traceback.format_exc())
-        pass
+    serialized_ftree = dill.dumps(ftree)
+    db.set(server_id, serialized_ftree)
 
 
 def retrieve_filetree_state(context: Context) -> Tree:
@@ -206,7 +200,3 @@ if __name__ == "__main__":
     t.create_node("/test/d1/d2", is_file=False, link=None)
     t.create_node("/test/d1/d2/file.txt", is_file=True, link="abc.com/file.txt")
     t.change_dir("test/d1/d2")
-    print(t.root.children[0].children[0].children[0].children[0].name)
-    p = cloudpickle.dumps(t)
-    t_s = cloudpickle.loads(p)
-    print(t_s.root.children[0].children[0].children[0].children[0].name)
