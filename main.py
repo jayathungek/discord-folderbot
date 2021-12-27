@@ -1,4 +1,3 @@
-import discord
 from discord import Embed
 from discord.ext import commands
 
@@ -36,7 +35,7 @@ async def send_help_msg(context, command: str = "folderbot"):
 
 @bot.event
 async def on_command_error(ctx, err):
-    if isinstance(err, discord.ext.commands.errors.CommandNotFound):
+    if isinstance(err, commands.errors.CommandNotFound):
         await send_help_msg(ctx)
 
 
