@@ -1,0 +1,3 @@
+secret/*
+!secret/secret.py
+!secret/__init__.py
