@@ -67,3 +67,14 @@ class CannotRmRootError(FolderbotError):
     def __init__(self):
         message = f"Cannot remove root directory"
         super(CannotRmRootError, self).__init__(message)
+
+
+class InvalidFilepathError(FolderbotError):
+    def __init__(self, path: str, reason: str):
+        message = f"Bad filepath {path} : {reason}"
+        super(InvalidFilepathError, self).__init__(message)
+
+
+if __name__ == '__main__': # pragma: no cover
+    e = CdPreviousFromRootError()
+    print(isinstance(e, CdPreviousFromRootError))

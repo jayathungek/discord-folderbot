@@ -1,10 +1,13 @@
 import re
 
-import constansts as cst
+import constants as cst
 
 
 def clean_path(path: str) -> str:
-    return re.sub(r"/{2,}", "/", path)
+    newpath = re.sub(r"/{2,}", "/", path)
+    if len(newpath) > 1:
+        newpath = newpath[:-1] if newpath[-1] == "/" else newpath
+    return newpath
 
 
 def ensure_last_child_correct(nodes):
@@ -23,5 +26,5 @@ def calculate_prefix(node) -> [int]:
     return map(lambda x: len(cst.SPACE) * x, postions)
 
 
-def insert(substring: str, pos: int, main_string: str) -> str:
+def replace_substring(substring: str, pos: int, main_string: str) -> str:
     return main_string[:pos] + substring + main_string[pos + len(substring):]

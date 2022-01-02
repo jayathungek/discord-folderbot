@@ -3,18 +3,19 @@ from discord.ext import commands
 
 import util
 import error
-from secret import get_discord_token
+import redis
+import constants as cst
+from pathing import Filepaths, get_required_parent_dirs_for_mk
+from secret import get_discord_token, get_redis_url, is_production
 from tree import Tree, save_filetree_state, retrieve_filetree_state
-import constansts as cst
-
 
 bot = commands.Bot(command_prefix=">>", help_command=None)
 
 
 async def send_message(context, message: str, msg_type: int, msg_title_override: str = None):
-    msg_title = cst.MSG_TITLES[msg_type]
+    msg_title = cst.MSG_TITLES[msg_type] if is_production() else cst.DEBUG_STR + cst.MSG_TITLES[msg_type]
     if msg_title_override:
-        msg_title = msg_title_override
+        msg_title = msg_title_override if is_production() else cst.DEBUG_STR + msg_title_override
     embed = Embed(title=msg_title, description=message, colour=cst.MSG_COLORS[msg_type])
     await context.send(embed=embed)
 
@@ -46,42 +47,25 @@ async def folderbot_help(ctx, command="folderbot"):
 
 @bot.command(name="rm")
 async def remove(ctx, *paths):
-    filetree = retrieve_filetree_state(ctx)
+    filetree = retrieve_filetree_state(database, ctx)
     if len(paths) == 0:
         err = error.NoPathsProvidedError("rm")
         await send_message(ctx, str(err), cst.MSG_ERR, msg_title_override="error: rm")
         return
 
+    success = []
     fail = []
-    dirs_to_rm = []
     for path in paths:
-        path = util.clean_path(path)
-        full_path = ""
-        cd_from_root = False
-        path_list = path.split("/")
-        for i, _ in enumerate(path_list):
-            full_path = f"{filetree.get_pwd_path()}/{'/'.join(path_list[: i + 1])}"
-            try:
-                full_path = filetree.get_abs_path(full_path)
-            except error.CdPreviousFromRootError as err:
-                fail.append((err, path))
-                cd_from_root = True
-                break
+        try:
+            abs_paths = Filepaths(filetree, path)
+            target_nodes = abs_paths.get_target_nodes()
+            for node in target_nodes:
+                full_filepath = node.get_full_path()
+                filetree.destroy_node(full_filepath)
+                success.append(full_filepath)
 
-            try:
-                filetree.get_node_from_path(full_path)
-            except error.NodeDoesNotExistError as err:
-                fail.append((err, path))
-                break
-
-        if cd_from_root:
-            err = error.CdPreviousFromRootError()
+        except (error.CdPreviousFromRootError, error.InvalidFilepathError, error.NodeDoesNotExistError) as err:
             fail.append((err, path))
-            continue
-
-        dirs_to_rm.append(full_path)
-
-    success, fail = await _rmdirs(filetree, *dirs_to_rm)
 
     if len(success) > 0:
         message = f"**Removed these items successfully:**\n{cst.NEWLINE.join(i for i in success)}"
@@ -92,12 +76,12 @@ async def remove(ctx, *paths):
                   f"\n{cst.NEWLINE.join(name + ' -> ' + str(msg) for msg, name in fail)}"
         await send_message(ctx, message, cst.MSG_ERR, msg_title_override="error: rm")
 
-    save_filetree_state(ctx, filetree)
+    save_filetree_state(database, ctx, filetree)
 
 
 @bot.command(name="mk")
 async def mkdirs(ctx, *paths):
-    filetree = retrieve_filetree_state(ctx)
+    filetree = retrieve_filetree_state(database, ctx)
     if len(paths) == 0:
         err = error.NoPathsProvidedError("mk")
         await send_message(ctx, str(err), cst.MSG_ERR, msg_title_override="error: mk")
@@ -106,39 +90,35 @@ async def mkdirs(ctx, *paths):
     success = []
     fail = []
     for path in paths:
-        path = util.clean_path(path)
-        dirs_to_mk = []
-        full_path = ""
         cd_from_root = False
-        path_list = path.split("/")
-        for i, _ in enumerate(path_list):
-            full_path = f"{filetree.get_pwd_path()}/{'/'.join(path_list[: i + 1])}"
-            # full_path = util.clean_path(full_path)
-            try:
-                full_path = filetree.get_abs_path(full_path)
-            except error.CdPreviousFromRootError as err:
-                fail.append((err, path))
-                cd_from_root = True
-                break
+        dirs_to_mk = []
+        final_abs_path = ""
+        try:
+            abs_paths = Filepaths(filetree, path, is_mk_cmd=True)
+            abs_paths = abs_paths.get_target_nodes()
+            for p in abs_paths:
+                final_abs_path = p
+                dirs_to_mk += get_required_parent_dirs_for_mk(filetree, p)
 
-            try:
-                filetree.get_node_from_path(full_path)
-            except error.NodeDoesNotExistError:
-                dirs_to_mk.append(full_path)
-                continue
-
-        if len(dirs_to_mk) == 0 and not cd_from_root:
-            err = error.NodeExistsError(full_path)
+        except (error.CdPreviousFromRootError, error.InvalidFilepathError) as err:
             fail.append((err, path))
+            if isinstance(err, error.CdPreviousFromRootError):
+                cd_from_root = True
+
+        dirs_to_mk = list(set(dirs_to_mk))
+        dirs_to_mk = sorted(dirs_to_mk, key=lambda d: len(d.split("/")))
+        if len(dirs_to_mk) == 0 and not cd_from_root:
+            node_name = path.split("/")[-1]
+            err = error.NodeExistsError(final_abs_path)
+            fail.append((err, node_name))
             continue
 
         s, f = await _mkdirs(filetree, *dirs_to_mk)
         if len(s) > 0:
-            success.append(s[-1])
+            success += s
 
         if len(f) > 0:
             fail.append(f[-1])
-
     if len(success) > 0:
         message = f"**Created these folders successfully:**\n{cst.NEWLINE.join(i for i in success)}"
         await send_message(ctx, message, cst.MSG_INFO, msg_title_override="mk")
@@ -148,7 +128,7 @@ async def mkdirs(ctx, *paths):
                   f"\n{cst.NEWLINE.join(name + ' -> ' + str(msg) for msg, name in fail)}"
         await send_message(ctx, message, cst.MSG_ERR, msg_title_override="error: mk")
 
-    save_filetree_state(ctx, filetree)
+    save_filetree_state(database, ctx, filetree)
 
 
 async def _mkdirs(filetree: Tree, *paths):
@@ -160,13 +140,13 @@ async def _mkdirs(filetree: Tree, *paths):
             path = util.clean_path(f"{filetree.get_pwd_path()}/{path}")
         try:
             filetree.create_node(path, is_file=False)
-            success.append(path)
         except (
-            error.NodeDoesNotExistError,
-            error.NodeExistsError,
-            error.CreateNodeUnderFileError,
+                error.NodeDoesNotExistError,
+                error.NodeExistsError,
+                error.CreateNodeUnderFileError,
         ) as err:
             fail.append((err, path.split("/")[-1]))
+        success.append(path)
 
     return success, fail
 
@@ -182,7 +162,7 @@ async def _rmdirs(filetree: Tree, *paths):
             filetree.destroy_node(path)
             success.append(path)
         except (
-            error.NodeDoesNotExistError, error.CannotRmRootError
+                error.NodeDoesNotExistError, error.CannotRmRootError
         ) as err:
             if path == "/":
                 fail.append((err, path))
@@ -194,7 +174,7 @@ async def _rmdirs(filetree: Tree, *paths):
 
 @bot.command(name="tree")
 async def tree(ctx):
-    filetree = retrieve_filetree_state(ctx)
+    filetree = retrieve_filetree_state(database, ctx)
     traversed_nodes = filetree.traverse()
     message = ""
     for node_details in traversed_nodes:
@@ -219,44 +199,46 @@ async def tree(ctx):
             )
 
             for pos in pipe_positions:
-                node_str_rep = util.insert(cst.PIPE, pos, node_str_rep)
+                node_str_rep = util.replace_substring(cst.PIPE, pos, node_str_rep)
 
         message = f"{message}\n{node_str_rep}"
-
+    print(len(message))
+    # TODO: Discord embeds have a char limit of 6000, how to work around this?
     await send_message(ctx, message, cst.MSG_OK, msg_title_override=f"Current directory: {filetree.get_pwd_path()}")
 
 
 @bot.command(name="pwd")
 async def pwd(ctx):
-    filetree = retrieve_filetree_state(ctx)
+    filetree = retrieve_filetree_state(database, ctx)
     message = f"Current directory: {filetree.get_pwd_path()}"
     await send_message(ctx, message, cst.MSG_INFO, msg_title_override="pwd")
 
 
 @bot.command(name="cd")
 async def cd(ctx, directory="/"):
-    filetree = retrieve_filetree_state(ctx)
+    filetree = retrieve_filetree_state(database, ctx)
     try:
         filetree.change_dir(directory)
         message = f"Current directory: {filetree.get_pwd_path()}"
         await send_message(ctx, message, cst.MSG_INFO)
     except (
-        error.CannotCdError,
-        error.CdPreviousFromRootError,
-        error.NodeDoesNotExistError,
+            error.CannotCdError,
+            error.CdPreviousFromRootError,
+            error.NodeDoesNotExistError,
     ) as err:
         await send_message(ctx, str(err), cst.MSG_ERR, msg_title_override="error: cd")
 
-    save_filetree_state(ctx, filetree)
+    save_filetree_state(database, ctx, filetree)
 
 
 @bot.command(name="ls")
 async def ls(ctx, directory: str = None, cols=cst.LS_GRID_COLS):
-    filetree = retrieve_filetree_state(ctx)
+    filetree = retrieve_filetree_state(database, ctx)
     if directory is None:
         directory = filetree.get_pwd_path()
     try:
-        node = filetree.get_node_from_path(directory)
+        abs_paths = Filepaths(filetree, directory)
+        node = abs_paths.get_target_nodes()[-1]
         if not node.is_dir():
             raise error.CannotLsError(directory)
 
@@ -276,25 +258,24 @@ async def ls(ctx, directory: str = None, cols=cst.LS_GRID_COLS):
                     line += f"[{name}]({link}){cst.SPACE}"
             lines.append(line)
         ls_str = "\n".join(lines)
-        await send_message(ctx, ls_str, cst.MSG_LS, msg_title_override=f"ls: {directory}")
+        await send_message(ctx, ls_str, cst.MSG_LS, msg_title_override=f"ls: {node.get_full_path()}")
     except (error.NodeDoesNotExistError, error.CannotLsError) as err:
         await send_message(ctx, str(err), cst.MSG_ERR, msg_title_override="error: ls")
 
 
 @bot.command(name="up")
 async def upload(ctx, directory=None):
-    filetree = retrieve_filetree_state(ctx)
+    filetree = retrieve_filetree_state(database, ctx)
     message = ctx.message
     if directory is None:
         directory = filetree.get_pwd_path()
-    elif directory[0] != "/":
-        directory = filetree.get_abs_path(directory)
-        directory = util.clean_path(directory)
-    try:
-        filetree.get_node_from_path(directory)
-    except error.NodeDoesNotExistError as err:
-        await send_message(ctx, str(err), cst.MSG_ERR, msg_title_override="error: up")
-        return
+    else:
+        try:
+            directory = str(Filepaths(filetree, directory))
+            filetree.get_node_from_path(directory)
+        except error.NodeDoesNotExistError as err:
+            await send_message(ctx, str(err), cst.MSG_ERR, msg_title_override="error: up")
+            return
 
     files = message.attachments
     if len(files) == 0 or files is None:
@@ -322,7 +303,9 @@ async def upload(ctx, directory=None):
                   f"\n{cst.NEWLINE.join(name + ' -> ' + str(msg) for msg, name in fail)}"
         await send_message(ctx, message, cst.MSG_ERR, msg_title_override="error: up")
 
-    save_filetree_state(ctx, filetree)
+    save_filetree_state(database, ctx, filetree)
 
 
-bot.run(get_discord_token())
+if __name__ == '__main__':
+    database = redis.from_url(get_redis_url())
+    bot.run(get_discord_token())

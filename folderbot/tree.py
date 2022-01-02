@@ -1,12 +1,13 @@
 import dill
 from typing import Optional, List, Union
 
+from redis import Redis
 from discord.ext.commands.context import Context
 
 import util
 import error
-from store import db
-import constansts as cst
+import constants as cst
+from pathing import Filepaths
 
 
 class Node:
@@ -73,32 +74,7 @@ class Tree:
 
         return cur_node
 
-    def get_abs_path(self, path):
-        if not path:
-            path = self.get_pwd_path()
-        path = util.clean_path(path)
-        cur_node = self.pwd
-        if path[0] == "/":
-            cur_node = self.root
-        path_list = path.split("/")
-        non_existent_path_list = []
-        for name in path_list:
-            if name == "..":
-                if cur_node.parent is not None:
-                    cur_node = cur_node.parent
-                else:
-                    raise error.CdPreviousFromRootError()
-            else:
-                next_path = util.clean_path(f"{cur_node.get_full_path()}/{name}")
-                try:
-                    cur_node = self.get_node_from_path(next_path)
-                except error.NodeDoesNotExistError:
-                    non_existent_path_list.append(name)
-
-        return f"{cur_node.get_full_path()}/{'/'.join(non_existent_path_list)}"
-
     def _create_node(self, path: str, name: str, is_file: bool, link: str):
-        path = self.get_abs_path(path)
         assert not (is_file ^ (link is not None))
         assert "/" not in name
         assert name != "(empty)"
@@ -123,9 +99,7 @@ class Tree:
         new_dir_name = path.split("/")[-1]
         self._create_node(existing_path, new_dir_name, is_file, link)
 
-    def destroy_node(self, path):
-        path = self.get_abs_path(path)
-        path = util.clean_path(path)
+    def destroy_node(self, path: str):
         node = self.get_node_from_path(path)
         if node is self.root:
             raise error.CannotRmRootError()
@@ -170,33 +144,48 @@ class Tree:
         return self.pwd.get_full_path()
 
     def change_dir(self, path):
-        abs_path = self.get_abs_path(path)
-        cur_node = self.get_node_from_path(abs_path)
+        path = str(Filepaths(self, path))
+        cur_node = self.get_node_from_path(path)
         if not cur_node.is_dir():
             raise error.CannotCdError(path)
 
         self.pwd = cur_node
 
 
-def save_filetree_state(context: Context, ftree: Tree):
+def save_filetree_state(database: Redis, context: Context, ftree: Tree):
     server_id = context.message.guild.id
     serialized_ftree = dill.dumps(ftree)
-    db.set(server_id, serialized_ftree)
+    database.set(server_id, serialized_ftree)
 
 
-def retrieve_filetree_state(context: Context) -> Tree:
+def retrieve_filetree_state(database: Redis, context: Context) -> Tree:
     server_id = context.message.guild.id
-    serialized_ftree = db.get(server_id)
+    serialized_ftree = database.get(server_id)
     if serialized_ftree:
         return dill.loads(serialized_ftree)
     else:
         return Tree()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     t = Tree()
     t.create_node("/test", is_file=False, link=None)
     t.create_node("/test/d1", is_file=False, link=None)
     t.create_node("/test/d1/d2", is_file=False, link=None)
     t.create_node("/test/d1/d2/file.txt", is_file=True, link="abc.com/file.txt")
-    t.change_dir("test/d1/d2")
+    t.create_node("/test/d1/d2/file2.txt", is_file=True, link="abc.com/file.txt")
+    t.create_node("/test/d1/d2/file3.txt", is_file=True, link="abc.com/file.txt")
+    # t.change_dir("test/d1/d2")
+    # test_path = "../d2/../d2/../../d1/d2/d3/d4"
+    test_path = ".."
+    abs_path = Filepaths(t, test_path, False)
+    # print(str(abs_path))
+    # print(abs_path._paths)
+    # print([n.name for n in abs_path.get_target_nodes()])
+    # to_mk = abs_path.get_target_nodes()
+    # print([n for n in to_mk])
+    # for n in to_mk:
+    #     pok = get_required_parent_dirs_for_mk(t, n)
+    #     print(pok)
+    #     for item in pok:
+    #         t.create_node(item, is_file=False, link=None)

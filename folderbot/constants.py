@@ -14,6 +14,7 @@ PIP_HORIZ = "━"
 SPACE = "⠀⠀"
 
 # Message attributes
+DEBUG_STR = "[DEBUG] "
 MSG_COLORS = {MSG_OK: 0x55ACEE, MSG_ERR: 0x8F0009, MSG_INFO: 0xC1B927, MSG_LS: 0x55ACEE}
 MSG_TITLES = {MSG_OK: "", MSG_ERR: "error", MSG_INFO: "info", MSG_LS: "ls: "}
 HELP_STRINGS = {
@@ -42,4 +43,7 @@ HELP_STRINGS = {
 # Logic
 COMMANDS = ["up", "tree", "mk", "rm", "ls", "lsa"]
 NEWLINE = "\n"
+PREV_DIR_SYM = ".."
+CUR_DIR_SYM = "."
+ALL_ITEMS_SYM = "*"
 LS_GRID_COLS = 4
