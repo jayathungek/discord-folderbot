@@ -1,1 +1,1 @@
-worker: python main.py
+worker: python folderbot/folderbot.py
