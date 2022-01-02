@@ -75,6 +75,6 @@ class InvalidFilepathError(FolderbotError):
         super(InvalidFilepathError, self).__init__(message)
 
 
-if __name__ == '__main__': # pragma: no cover
+if __name__ == '__main__':  # pragma: no cover
     e = CdPreviousFromRootError()
     print(isinstance(e, CdPreviousFromRootError))
