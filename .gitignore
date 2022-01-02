@@ -1,4 +1,6 @@
 .idea
+.coverage
+*.egg-info
 __pycache__
-secret/*
-!secret/__init__.py
+folderbot/secret/*
+!folderbot/secret/__init__.py
